@@ -4,6 +4,8 @@ import yaml
 import torch
 import numpy as np
 import soundfile as sf
+
+
 from fastapi import FastAPI, UploadFile, File
 from scripts.preprocess_audio import preprocess_audio
 from utils.audio_vad import split_audio
@@ -12,7 +14,8 @@ from utils.emotion_classifier import EmotionClassifier
 # Hypothetical Ultravox and Kokoro imports
 from ultravox import UltravoxForSpeech
 from kokoro import KPipeline
-
+os.environ["TRANSFORMERS_NO_TF"] = "1"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 # Load configuration
 config_path = os.getenv("CONFIG_PATH", "config/settings.yaml")
 with open(config_path, "r") as f:
