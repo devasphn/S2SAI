@@ -1,0 +1,8 @@
+model:
+  stt_llm_path: "models/ultravox"
+  tts_path: "models/kokoro"
+device: "cuda"
+vad:
+  aggressiveness: 3
+emotion_classifier:
+  model_name: "LAION/EmoNet"
