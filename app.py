@@ -11,7 +11,7 @@ from utils.emotion_classifier import EmotionClassifier
 
 # Hypothetical Ultravox and Kokoro imports
 from ultravox import UltravoxForSpeech
-from kokoro import KokoroTTSModel
+from kokoro import KPipeline
 
 # Load configuration
 config_path = os.getenv("CONFIG_PATH", "config/settings.yaml")
@@ -31,10 +31,7 @@ tts_model = KokoroTTSModel.from_pretrained(
 )
 
 # Initialize emotion classifier
-emotion_model = EmotionClassifier(
-    config["emotion_classifier"]["model_name"], config.get("device", "cpu")
-)
-
+tts_model = KPipeline(lang_code='a')
 app = FastAPI()
 
 @app.post("/process_audio")
