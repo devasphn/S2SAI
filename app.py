@@ -1,76 +1,70 @@
+#!/usr/bin/env python3
 import os
+# Silence TensorFlow logs and disable TF in Transformers
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["TRANSFORMERS_NO_TF"]   = "1"
+
 import io
 import yaml
 import torch
-import numpy as np
 import soundfile as sf
-
-
+import numpy as np
 from fastapi import FastAPI, UploadFile, File
 from scripts.preprocess_audio import preprocess_audio
 from utils.audio_vad import split_audio
 from utils.emotion_classifier import EmotionClassifier
 
-# Hypothetical Ultravox and Kokoro imports
-from ultravox import UltravoxForSpeech
+# Correct Ultravox import
+from ultravox.ultravox_pipeline import UltravoxPipeline
+
+# Kokoro TTS pipeline
 from kokoro import KPipeline
-os.environ["TRANSFORMERS_NO_TF"] = "1"
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+
 # Load configuration
-config_path = os.getenv("CONFIG_PATH", "config/settings.yaml")
-with open(config_path, "r") as f:
+with open(os.getenv("CONFIG_PATH", "config/settings.yaml")) as f:
     config = yaml.safe_load(f)
 
 device = torch.device(config.get("device", "cpu"))
 
-# Initialize STT+LLM model
-stt_llm = UltravoxForSpeech.from_pretrained(
-    config["model"]["stt_llm_path"], device=device
-)
-
-# Initialize TTS model
-tts_model = KokoroTTSModel.from_pretrained(
-    config["model"]["tts_path"], device=device
-)
-
-# Initialize emotion classifier
+# Initialize models
+stt_llm   = UltravoxPipeline.from_pretrained(
+               config["model"]["stt_llm_path"],
+               device=device,
+               trust_remote_code=True
+            )
 tts_model = KPipeline(lang_code='a')
+emotion_model = EmotionClassifier(
+                   config["emotion_classifier"]["model_name"],
+                   config.get("device", "cpu")
+               )
+
 app = FastAPI()
 
 @app.post("/process_audio")
 async def process_audio(file: UploadFile = File(...)):
-    # Read and decode uploaded audio file
     data, sr = sf.read(io.BytesIO(await file.read()))
-    # Split into voiced segments
     segments = split_audio(data, sr, config["vad"]["aggressiveness"])
-    responses = []
+    results = []
 
     for seg in segments:
-        # Preprocess segment
-        seg_norm = preprocess_audio(seg, sr)
-
-        # STT + LLM inference
-        text = stt_llm.transcribe(seg_norm)
-
-        # Emotion detection
-        emotion = emotion_model.predict(seg_norm, sr)
-
-        # TTS synthesis
-        audio_out = tts_model.synthesize(text, emotion)
-
-        responses.append({
-            "text": text,
-            "emotion": emotion,
-            "audio_bytes": audio_out
+        seg_norm    = preprocess_audio(seg, sr)
+        user_text   = stt_llm({'audio': seg_norm, 'sampling_rate': sr})[0]['text']
+        emotion     = emotion_model.predict(seg_norm, sr)
+        agent_text  = stt_llm.generate_response(
+                          prompt=user_text, emotion=emotion
+                       )
+        audio_out   = tts_model(agent_text, voice='af_heart')[0][2]
+        buf         = io.BytesIO()
+        sf.write(buf, audio_out, config.get("tts_sample_rate", 24000), format="WAV")
+        results.append({
+            "user_text":  user_text,
+            "emotion":    emotion,
+            "agent_text": agent_text,
+            "audio_hex":  buf.getvalue().hex()
         })
 
-    return {"results": responses}
+    return {"results": results}
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "app:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True
-    )
+    uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)), reload=True)
