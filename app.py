@@ -29,10 +29,13 @@ with open(config_path, "r") as f:
 # Initialize models
 device = torch.device(config.get("device", "cpu"))
 
-# Load Ultravox using correct pipeline approach (no task specified)
+# FIXED: Load Ultravox with proper device handling to avoid meta tensor issues
 ultravox_pipeline = transformers.pipeline(
-    model=config["model"]["stt_llm_path"],  # "models/ultravox"
+    model=config["model"]["stt_llm_path"],
     trust_remote_code=True,
+    device_map=None,  # Don't use auto device mapping
+    torch_dtype=torch.float16 if device.type == "cuda" else torch.float32,
+    low_cpu_mem_usage=False,  # Load everything into memory properly
     device=0 if device.type == "cuda" else -1
 )
 
@@ -76,8 +79,8 @@ async def process_audio(file: UploadFile = File(...)):
         try:
             # Use the correct Ultravox input format with turns
             turns = [
-                {"role": "system", "content": "You are a helpful assistant. Listen to the audio and respond appropriately."},
-                {"role": "user", "content": "Please transcribe and respond to this audio."}
+                {"role": "system", "content": "You are a helpful assistant. Transcribe the audio clearly."},
+                {"role": "user", "content": "Please transcribe this audio."}
             ]
             
             ultravox_input = {
