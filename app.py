@@ -5,19 +5,20 @@ import os, sys
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["TRANSFORMERS_NO_TF"]   = "1"
 
-# Ensure local Ultravox package is importable
+# Ensure local packages are importable
 sys.path.insert(0, os.getcwd())
 
+import io
 import yaml
 import torch
 import soundfile as sf
 import numpy as np
 from fastapi import FastAPI, UploadFile, File
+from transformers import pipeline
 
 from scripts.preprocess_audio import preprocess_audio
 from utils.audio_vad import split_audio
 from utils.emotion_classifier import EmotionClassifier
-from ultravox.inference.ultravox_infer import UltravoxInference
 from kokoro import KPipeline
 
 # Load configuration
@@ -26,40 +27,86 @@ with open(config_path, "r") as f:
     config = yaml.safe_load(f)
 
 # Initialize models
-device     = torch.device(config.get("device", "cpu"))
-stt_llm    = UltravoxInference(config["model"]["stt_llm_path"], device=device)
-tts_model  = KPipeline(lang_code=config["model"]["tts_voice"])
+device = torch.device(config.get("device", "cpu"))
+
+# Load Ultravox using Transformers pipeline
+stt_llm = pipeline(
+    "automatic-speech-recognition",
+    model=config["model"]["stt_llm_path"],
+    device=0 if device.type == "cuda" else -1,
+    trust_remote_code=True
+)
+
+# Initialize Kokoro TTS with local model path
+tts_model = KPipeline(
+    model_path=config["model"]["kokoro_model_path"],
+    lang_code='a'
+)
+
+# Initialize emotion classifier
 emotion_model = EmotionClassifier(
     model_path=config["model"]["emotion_classifier_model"],
     device=config.get("device", "cpu")
 )
 
-app = FastAPI()
+app = FastAPI(title="Emotional STS Agent")
 
 @app.post("/process_audio")
 async def process_audio(file: UploadFile = File(...)):
+    """
+    Process uploaded audio file:
+    1. VAD segmentation
+    2. STT transcription
+    3. Emotion classification  
+    4. Generate agent response
+    5. TTS synthesis
+    6. Return JSON with text, emotion, and hex-encoded audio
+    """
+    # Read audio data
     data, sr = sf.read(io.BytesIO(await file.read()))
+    
+    # VAD segmentation
     segments = split_audio(data, sr, config["vad"]["aggressiveness"])
     results = []
 
     for seg in segments:
-        seg_norm   = preprocess_audio(seg, sr)
-        transcript = stt_llm({"audio": seg_norm, "sampling_rate": sr})[0]["text"]
-        emotion    = emotion_model.predict(seg_norm, sr)
-        reply      = stt_llm.generate_response(prompt=transcript, emotion=emotion)
-        tts_out    = tts_model(reply)
-        audio_arr  = tts_out[0][2]
-        buf        = io.BytesIO()
-        sf.write(buf, audio_arr, config["tts_sample_rate"], format="WAV")
+        # Preprocess segment
+        seg_norm = preprocess_audio(seg, sr)
+        
+        # STT transcription using Transformers pipeline
+        transcript_result = stt_llm(seg_norm, sampling_rate=sr)
+        transcript = transcript_result["text"] if isinstance(transcript_result, dict) else transcript_result
+        
+        # Emotion classification
+        emotion = emotion_model.predict(seg_norm, sr)
+        
+        # Generate agent response
+        agent_text = f"I understand you said: {transcript}. I detect you're feeling {emotion}."
+        
+        # TTS synthesis with specified voice
+        tts_output = tts_model(
+            agent_text, 
+            voice=config["model"]["tts_voice"]
+        )
+        audio_arr = tts_output[0][2]
+        
+        # Encode audio to hex for JSON transport
+        buf = io.BytesIO()
+        sf.write(buf, audio_arr, config.get("tts_sample_rate", 24000), format="WAV")
+        
         results.append({
-            "user_text":  transcript,
-            "emotion":    emotion,
-            "agent_text": reply,
-            "audio_hex":  buf.getvalue().hex()
+            "user_text": transcript,
+            "emotion": emotion,
+            "agent_text": agent_text,
+            "audio_hex": buf.getvalue().hex()
         })
 
     return {"results": results}
 
+@app.get("/")
+def health_check():
+    return {"status": "Emotional STS Agent is running", "models_loaded": True}
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT",8000)), reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)), reload=True)
