@@ -29,12 +29,11 @@ with open(config_path, "r") as f:
 # Initialize models
 device = torch.device(config.get("device", "cpu"))
 
-# Load Ultravox using standard Transformers pipeline (avoids relative import issues)
+# Load Ultravox using correct pipeline approach (no task specified)
 ultravox_pipeline = transformers.pipeline(
-    task="automatic-speech-recognition",
-    model=config["model"]["stt_llm_path"],
-    device=0 if device.type == "cuda" else -1,
-    trust_remote_code=True
+    model=config["model"]["stt_llm_path"],  # "models/ultravox"
+    trust_remote_code=True,
+    device=0 if device.type == "cuda" else -1
 )
 
 # Initialize Kokoro TTS with local model path
@@ -73,11 +72,23 @@ async def process_audio(file: UploadFile = File(...)):
         # Preprocess segment
         seg_norm = preprocess_audio(seg, sr)
         
-        # STT transcription using Transformers pipeline
-        # This approach avoids the relative import issues
+        # Ultravox STT transcription using correct input format
         try:
-            transcript_result = ultravox_pipeline(seg_norm, sampling_rate=sr)
-            transcript = transcript_result["text"] if isinstance(transcript_result, dict) else str(transcript_result)
+            # Use the correct Ultravox input format with turns
+            turns = [
+                {"role": "system", "content": "You are a helpful assistant. Listen to the audio and respond appropriately."},
+                {"role": "user", "content": "Please transcribe and respond to this audio."}
+            ]
+            
+            ultravox_input = {
+                'audio': seg_norm,
+                'turns': turns,
+                'sampling_rate': sr
+            }
+            
+            transcript_result = ultravox_pipeline(ultravox_input, max_new_tokens=50)
+            transcript = transcript_result if isinstance(transcript_result, str) else str(transcript_result)
+            
         except Exception as e:
             print(f"STT Error: {e}")
             transcript = "Could not transcribe audio"
@@ -90,7 +101,7 @@ async def process_audio(file: UploadFile = File(...)):
             emotion = "neutral"
         
         # Generate agent response
-        agent_text = f"I understand you said: {transcript}. I detect you're feeling {emotion}."
+        agent_text = f"I heard: {transcript}. I detect you're feeling {emotion}."
         
         # TTS synthesis with specified voice
         try:
