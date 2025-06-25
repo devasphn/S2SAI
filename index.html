@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <button id="record">Record</button>
+  <audio id="playback" controls></audio>
+  <script>
+    let mediaRecorder, audioChunks = [];
+    document.getElementById("record").onclick = async () => {
+      if (!mediaRecorder) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+        mediaRecorder.onstop = async () => {
+          const blob = new Blob(audioChunks, { type: 'audio/wav' });
+          audioChunks = [];
+          const form = new FormData();
+          form.append("file", blob, "request.wav");
+          const resp = await fetch("/process_audio", { method: "POST", body: form });
+          const json = await resp.json();
+          const hex = json.results[0].audio_hex;
+          const bytes = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16)));
+          const respBlob = new Blob([bytes], { type: 'audio/wav' });
+          document.getElementById("playback").src = URL.createObjectURL(respBlob);
+        };
+        mediaRecorder.start();
+        setTimeout(() => mediaRecorder.stop(), 3000);
+      }
+    };
+  </script>
+</body>
+</html>
