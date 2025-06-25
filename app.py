@@ -7,8 +7,7 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"   # Hide TF INFO/WARN/ERROR logs[2]
 os.environ["TRANSFORMERS_NO_TF"]   = "1"   # Use PyTorch-only in Transformers[3]
 
 # Add local Ultravox code path (adjust if you cloned elsewhere)
-sys.path.append(os.path.join(os.getcwd(), "models", "ultravox"))  # noqa: E402[1]
-
+sys.path.insert(0, os.getcwd())
 import io                                                      # In-memory byte streams[4]
 import yaml                                                    # YAML configuration[5]
 import torch                                                   # Device management[6]
