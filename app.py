@@ -49,10 +49,9 @@ print(f"Ultravox loaded successfully on {device}")
 # Initialize Kokoro TTS
 print("Loading Kokoro TTS...")
 tts_model = KPipeline(
-    model_path=config["model"]["kokoro_model_path"],
-    lang_code='a'
+    lang_code=config["model"]["tts_voice"][0],  # 'a' for 'af_heart'
+    device='cuda' if torch.cuda.is_available() else 'cpu'
 )
-
 # Initialize emotion classifier
 print("Loading emotion classifier...")
 emotion_model = EmotionClassifier(
