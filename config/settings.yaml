@@ -1,17 +1,10 @@
 model:
-  # Path to the Ultravox STT+LLM model directory
-  stt_llm_path: "models/ultravox"  
-  # Voice identifier for Kokoro TTS synthesis
-  tts_voice: "af_heart"  
-  # Path to the SpeechBrain-based emotion classifier
-  emotion_classifier_model: "models/emotion_classifier"  
+  stt_llm_path: "models/ultravox"
+  kokoro_model_path: "models/kokoro"
+  tts_voice: "af_heart"
+  emotion_classifier_model: "models/emotion_classifier"
 
-# Device for model inference ('cuda' for GPU, 'cpu' for CPU)
-device: "cuda"  
-
+device: "cuda"
 vad:
-  # WebRTC VAD aggressiveness level (0–3)
-  aggressiveness: 3  
-
-# Sampling rate (Hz) for TTS audio output
-tts_sample_rate: 24000  
+  aggressiveness: 3
+tts_sample_rate: 24000
