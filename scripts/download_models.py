@@ -29,15 +29,13 @@ def download_models():
     )
     print("Kokoro-82M model ready in 'models/kokoro'")
 
-    # 3. Download LAION/EmoNet emotion classifier
-    print("Downloading LAION/EmoNet emotion classification model...")
     snapshot_download(
-        repo_id="LAION/EmoNet",
-        local_dir="models/emotion_classifier",
-        repo_type="model",
-        resume_download=True
+    repo_id="speechbrain/emotion-recognition-wav2vec2-IEMOCAP",
+    local_dir="models/emotion_classifier",
+    repo_type="model",
+    resume_download=True
     )
-    print("Emotion classifier ready in 'models/emotion_classifier'")
+    print("Downloaded SpeechBrain emotion model to 'models/emotion_classifier'")
 
 if __name__ == "__main__":
     download_models()
