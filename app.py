@@ -32,43 +32,19 @@ with open(config_path, "r") as f:
 # Initialize device
 device = torch.device(config.get("device", "cuda" if torch.cuda.is_available() else "cpu"))
 
-print("Loading Ultravox model...")
+print("Loading Ultravox model with latest Transformers...")
 
-# SOLUTION: Load Ultravox components separately to avoid processor issues
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+# Use the official Ultravox pipeline approach (works with latest transformers)
+import transformers
 
-# Load config first
-ultravox_config = AutoConfig.from_pretrained(
-    config["model"]["stt_llm_path"],
-    trust_remote_code=True
-)
-
-# Load tokenizer with explicit handling
-try:
-    # Try to load the tokenizer directly
-    tokenizer = AutoTokenizer.from_pretrained(
-        config["model"]["stt_llm_path"],
-        trust_remote_code=True,
-        use_fast=False  # Use slow tokenizer to avoid fast tokenizer issues
-    )
-except Exception as e:
-    print(f"Direct tokenizer loading failed: {e}")
-    # Fallback: Load from the language model path
-    tokenizer = AutoTokenizer.from_pretrained(
-        "microsoft/DialoGPT-medium",  # Fallback tokenizer
-        trust_remote_code=True
-    )
-
-# Load model
-model = AutoModelForCausalLM.from_pretrained(
-    config["model"]["stt_llm_path"],
+ultravox_pipeline = transformers.pipeline(
+    model=config["model"]["stt_llm_path"],  # "models/ultravox"
     trust_remote_code=True,
-    torch_dtype=torch.float16,
-    device_map={"": device},
-    low_cpu_mem_usage=False
+    device=0 if device.type == "cuda" else -1,
+    torch_dtype=torch.float16 if device.type == "cuda" else torch.float32
 )
 
-print(f"Ultravox loaded on {device}")
+print(f"Ultravox loaded successfully on {device}")
 
 # Initialize Kokoro TTS
 print("Loading Kokoro TTS...")
@@ -84,44 +60,7 @@ emotion_model = EmotionClassifier(
     device=str(device)
 )
 
-app = FastAPI(title="Emotional STS Agent with Ultravox")
-
-def process_with_ultravox(audio, sampling_rate):
-    """Process audio with Ultravox model directly"""
-    try:
-        # Convert audio to the format expected by the model
-        if len(audio.shape) > 1:
-            audio = audio.mean(axis=1)  # Convert to mono if stereo
-        
-        # Normalize audio
-        audio = audio / np.max(np.abs(audio)) if np.max(np.abs(audio)) > 0 else audio
-        
-        # Create a simple prompt for transcription
-        prompt = "Transcribe the following audio: "
-        
-        # Tokenize the prompt
-        inputs = tokenizer(prompt, return_tensors="pt").to(device)
-        
-        # For now, we'll use a simple approach - just return the prompt
-        # In a full implementation, you'd process the audio through the model
-        with torch.no_grad():
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=50,
-                do_sample=True,
-                temperature=0.7,
-                pad_token_id=tokenizer.eos_token_id
-            )
-        
-        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        # Remove the original prompt from the response
-        response = response.replace(prompt, "").strip()
-        
-        return response if response else "I heard some audio input."
-        
-    except Exception as e:
-        print(f"Ultravox processing error: {e}")
-        return "I processed your audio input."
+app = FastAPI(title="Emotional STS Agent with Ultravox v0.5")
 
 @app.post("/process_audio")
 async def process_audio(file: UploadFile = File(...)):
@@ -140,12 +79,28 @@ async def process_audio(file: UploadFile = File(...)):
             # Preprocess segment
             seg_norm = preprocess_audio(seg, sr)
             
-            # Process with Ultravox
+            # Ultravox processing using official format
             try:
-                transcript = process_with_ultravox(seg_norm, sr)
+                # Use the official Ultravox input format
+                turns = [
+                    {
+                        "role": "system", 
+                        "content": "You are a helpful AI assistant. Respond naturally to the user's speech."
+                    }
+                ]
+                
+                ultravox_input = {
+                    'audio': seg_norm,
+                    'turns': turns,
+                    'sampling_rate': sr
+                }
+                
+                response = ultravox_pipeline(ultravox_input, max_new_tokens=100)
+                transcript = response if isinstance(response, str) else response.get("text", "")
+                
             except Exception as e:
                 print(f"Ultravox processing error: {e}")
-                transcript = "I heard your audio."
+                transcript = "I heard your speech input."
             
             # Emotion classification
             try:
@@ -159,11 +114,14 @@ async def process_audio(file: UploadFile = File(...)):
                 "happy": "I'm glad you sound happy! ",
                 "sad": "I hear some sadness in your voice. ",
                 "angry": "I sense some frustration. Let me help. ",
-                "neutral": "I understand. "
+                "fear": "I understand you might be worried. ",
+                "surprise": "That sounds interesting! ",
+                "disgust": "I understand your concern. ",
+                "neutral": "I hear you. "
             }
             
-            emotion_prefix = emotion_responses.get(emotion, "")
-            agent_text = emotion_prefix + f"You said: {transcript}. How can I help you today?"
+            emotion_prefix = emotion_responses.get(emotion.lower(), "")
+            agent_text = emotion_prefix + transcript
             
             # TTS synthesis
             try:
@@ -196,12 +154,13 @@ async def process_audio(file: UploadFile = File(...)):
 @app.get("/")
 def health_check():
     return {
-        "status": "Ultravox STS Agent Running",
+        "status": "Ultravox v0.5 STS Agent Running",
         "models": {
             "stt_llm": "Ultravox v0.5",
             "tts": "Kokoro",
             "emotion": "SpeechBrain",
-            "device": str(device)
+            "device": str(device),
+            "transformers_version": transformers.__version__
         }
     }
 
@@ -213,7 +172,9 @@ def test_models():
         test_audio = np.sin(2 * np.pi * 440 * np.linspace(0, 1, 16000)).astype(np.float32)
         
         # Test Ultravox
-        ultravox_result = process_with_ultravox(test_audio, 16000)
+        test_turns = [{"role": "system", "content": "You are a test assistant."}]
+        test_input = {'audio': test_audio, 'turns': test_turns, 'sampling_rate': 16000}
+        ultravox_result = ultravox_pipeline(test_input, max_new_tokens=10)
         
         # Test TTS
         tts_result = tts_model("Test message", voice="af_heart")
@@ -222,16 +183,18 @@ def test_models():
             "ultravox_test": "passed" if ultravox_result else "failed",
             "tts_test": "passed" if tts_result else "failed",
             "emotion_test": "passed",
-            "device": str(device)
+            "device": str(device),
+            "transformers_version": transformers.__version__
         }
     except Exception as e:
         return {"test_error": str(e)}
 
 if __name__ == "__main__":
     import uvicorn
-    print("Starting Ultravox Emotional STS Agent...")
+    print("Starting Ultravox v0.5 Emotional STS Agent...")
     print(f"Device: {device}")
     print(f"CUDA Available: {torch.cuda.is_available()}")
+    print(f"Transformers Version: {transformers.__version__}")
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
