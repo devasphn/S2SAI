@@ -1,8 +1,10 @@
 model:
   stt_llm_path: "models/ultravox"
-  tts_path: "models/kokoro"
+  
+emotion_classifier:
+  model_path: "models/emotion_classifier"  # Changed from model_name
+  
 device: "cuda"
 vad:
   aggressiveness: 3
-emotion_classifier:
-  model_name: "LAION/EmoNet"
+tts_sample_rate: 24000
