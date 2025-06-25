@@ -14,7 +14,12 @@ import torch
 import soundfile as sf
 import numpy as np
 from fastapi import FastAPI, UploadFile, File
-from transformers import pipeline
+
+# Import Ultravox custom classes
+sys.path.append("models/ultravox")
+from ultravox_pipeline import UltravoxPipeline
+from ultravox_config import UltravoxConfig
+from ultravox_model import UltravoxModel
 
 from scripts.preprocess_audio import preprocess_audio
 from utils.audio_vad import split_audio
@@ -29,12 +34,11 @@ with open(config_path, "r") as f:
 # Initialize models
 device = torch.device(config.get("device", "cpu"))
 
-# Load Ultravox using Transformers pipeline
-stt_llm = pipeline(
-    "automatic-speech-recognition",
-    model=config["model"]["stt_llm_path"],
-    device=0 if device.type == "cuda" else -1,
-    trust_remote_code=True
+# Load Ultravox using its custom pipeline
+stt_llm = UltravoxPipeline.from_pretrained(
+    config["model"]["stt_llm_path"],
+    device_map="auto" if device.type == "cuda" else None,
+    torch_dtype=torch.float16 if device.type == "cuda" else torch.float32
 )
 
 # Initialize Kokoro TTS with local model path
@@ -56,7 +60,7 @@ async def process_audio(file: UploadFile = File(...)):
     """
     Process uploaded audio file:
     1. VAD segmentation
-    2. STT transcription
+    2. STT transcription with Ultravox
     3. Emotion classification  
     4. Generate agent response
     5. TTS synthesis
@@ -73,14 +77,21 @@ async def process_audio(file: UploadFile = File(...)):
         # Preprocess segment
         seg_norm = preprocess_audio(seg, sr)
         
-        # STT transcription using Transformers pipeline
-        transcript_result = stt_llm(seg_norm, sampling_rate=sr)
-        transcript = transcript_result["text"] if isinstance(transcript_result, dict) else transcript_result
+        # STT transcription using Ultravox custom pipeline
+        # Ultravox expects specific input format
+        inputs = {
+            "audio": seg_norm,
+            "text": "",  # Empty text for pure ASR
+            "sampling_rate": sr
+        }
+        
+        transcript_result = stt_llm(inputs)
+        transcript = transcript_result["text"] if isinstance(transcript_result, dict) else str(transcript_result)
         
         # Emotion classification
         emotion = emotion_model.predict(seg_norm, sr)
         
-        # Generate agent response
+        # Generate agent response (you can enhance this with LLM integration)
         agent_text = f"I understand you said: {transcript}. I detect you're feeling {emotion}."
         
         # TTS synthesis with specified voice
