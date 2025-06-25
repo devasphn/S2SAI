@@ -1,16 +1,41 @@
-import torch
+#!/usr/bin/env python3
+
 from huggingface_hub import snapshot_download
-from transformers import pipeline
 
-# Ultravox inference test
-stt_llm = pipeline("audio-to-text", model="models/ultravox", device=0)
-print("Ultravox loaded:", stt_llm)
+def download_models():
+    """
+    Download required models from Hugging Face Hub into the local 'models/' directory.
+    """
 
-# Kokoro TTS test (import from package)
-from kokoro import KPipeline
-tts = KPipeline(lang_code='a')
-print("Kokoro loaded:", tts)
+    # 1. Ultravox STT+LLM Model (v0.5 1B parameters)
+    print("Downloading Ultravox v0.5 (1B) model...")
+    snapshot_download(
+        repo_id="fixie-ai/ultravox-v0_5-llama-3_2-1b",
+        local_dir="models/ultravox",
+        repo_type="model",
+        resume_download=True
+    )
+    print("Ultravox model downloaded to 'models/ultravox'")
 
-# Emotion classifier test
-emo = pipeline("audio-classification", model="models/emotion", device=0)
-print("Emotion model loaded:", emo)
+    # 2. Kokoro TTS Model
+    print("Downloading Kokoro TTS model...")
+    snapshot_download(
+        repo_id="hexgrad/kokoro",
+        local_dir="models/kokoro",
+        repo_type="model",
+        resume_download=True
+    )
+    print("Kokoro model downloaded to 'models/kokoro'")
+
+    # 3. Emotion Classification Model
+    print("Downloading audio emotion classifier...")
+    snapshot_download(
+        repo_id="LAION/EmoNet",
+        local_dir="models/emotion_classifier",
+        repo_type="model",
+        resume_download=True
+    )
+    print("Emotion classifier model downloaded to 'models/emotion_classifier'")
+
+if __name__ == "__main__":
+    download_models()
