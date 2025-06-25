@@ -11,7 +11,7 @@ from speechbrain.inference.interfaces import foreign_class
 
 class EmotionClassifier:
     """
-    EmotionClassifier using SpeechBrain’s wav2vec2-IEMOCAP model.
+    EmotionClassifier using SpeechBrain's wav2vec2-IEMOCAP model.
     """
 
     def __init__(self, model_path: str, device: str = 'cpu'):
@@ -44,6 +44,8 @@ class EmotionClassifier:
             sf.write(tmp.name, audio, sr)
             # Perform classification
             out_prob, score, index, text_lab = self.classifier.classify_file(tmp.name)
+            # Clean up temporary file
+            os.unlink(tmp.name)
 
         # text_lab can be a list or string
         label = text_lab[0] if isinstance(text_lab, list) else text_lab
