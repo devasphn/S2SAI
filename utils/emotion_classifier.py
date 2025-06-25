@@ -1,7 +1,9 @@
 import os
 import numpy as np
+import tempfile
+import soundfile as sf
 
-# Disable TensorFlow in Transformers
+# Disable TensorFlow in Transformers if installed
 os.environ["TRANSFORMERS_NO_TF"] = "1"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
@@ -9,49 +11,40 @@ from speechbrain.inference.interfaces import foreign_class
 
 class EmotionClassifier:
     """
-    SpeechBrain-based emotion classifier using the wav2vec2-IEMOCAP model.
+    EmotionClassifier using SpeechBrain’s wav2vec2-IEMOCAP model.
     """
+
     def __init__(self, model_path: str, device: str = 'cpu'):
         """
-        Initialize the SpeechBrain emotion classification model.
-        
         Args:
-            model_path (str): Path to the SpeechBrain model directory
-            device (str): Device to run on ('cpu' or 'cuda')
+          model_path: Path to the folder containing SpeechBrain checkpoints
+          device: 'cpu' or 'cuda'
         """
         self.device = device
-        self.model_path = model_path
-        
-        # Load using SpeechBrain's foreign_class function
         self.classifier = foreign_class(
             source=model_path,
             pymodule_file="custom_interface.py",
             classname="CustomEncoderWav2vec2Classifier",
             run_opts={"device": device}
         )
-    
+
     def predict(self, audio: np.ndarray, sr: int = 16000) -> str:
         """
-        Predict emotion from audio array.
-        
+        Predicts emotion label from a raw audio numpy array.
+
         Args:
-            audio (np.ndarray): Audio waveform
-            sr (int): Sample rate
-            
+          audio: 1D numpy array of audio samples
+          sr: Sampling rate of the audio
+
         Returns:
-            str: Predicted emotion label
+          Predicted emotion label string
         """
-        # Save audio temporarily for SpeechBrain processing
-        import tempfile
-        import soundfile as sf
-        
-        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
-            sf.write(tmp_file.name, audio, sr)
-            
-            # Use SpeechBrain's classify_file method
-            out_prob, score, index, text_lab = self.classifier.classify_file(tmp_file.name)
-            
-            # Clean up temporary file
-            os.unlink(tmp_file.name)
-            
-            return text_lab[0] if isinstance(text_lab, list) else text_lab
+        # Save audio to temporary WAV file
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            sf.write(tmp.name, audio, sr)
+            # Perform classification
+            out_prob, score, index, text_lab = self.classifier.classify_file(tmp.name)
+
+        # text_lab can be a list or string
+        label = text_lab[0] if isinstance(text_lab, list) else text_lab
+        return label
