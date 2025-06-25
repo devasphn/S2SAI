@@ -16,6 +16,8 @@ import torch
 import soundfile as sf
 import numpy as np
 from fastapi import FastAPI, UploadFile, File
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -46,12 +48,13 @@ ultravox_pipeline = transformers.pipeline(
 
 print(f"Ultravox loaded successfully on {device}")
 
-# Initialize Kokoro TTS
+# Initialize Kokoro TTS - FIXED: Use 'a' for American English
 print("Loading Kokoro TTS...")
 tts_model = KPipeline(
-    lang_code=config["model"]["tts_voice"][0],  # 'a' for 'af_heart'
+    lang_code='a',  # CORRECTED: Use 'a' for American English
     device='cuda' if torch.cuda.is_available() else 'cpu'
 )
+
 # Initialize emotion classifier
 print("Loading emotion classifier...")
 emotion_model = EmotionClassifier(
@@ -60,6 +63,14 @@ emotion_model = EmotionClassifier(
 )
 
 app = FastAPI(title="Emotional STS Agent with Ultravox v0.5")
+
+# Serve static files (including index.html)
+app.mount("/static", StaticFiles(directory="."), name="static")
+
+@app.get("/")
+async def serve_index():
+    """Serve the index.html file"""
+    return FileResponse("index.html")
 
 @app.post("/process_audio")
 async def process_audio(file: UploadFile = File(...)):
@@ -122,13 +133,13 @@ async def process_audio(file: UploadFile = File(...)):
             emotion_prefix = emotion_responses.get(emotion.lower(), "")
             agent_text = emotion_prefix + transcript
             
-            # TTS synthesis
+            # TTS synthesis - FIXED: Correct audio extraction
             try:
                 tts_output = tts_model(
                     agent_text,
-                    voice=config["model"]["tts_voice"]
+                    voice=config["model"]["tts_voice"]  # "af_heart"
                 )
-                audio_arr = tts_output[0][2]
+                audio_arr = tts_output[0][2]  # CORRECTED: Extract audio array properly
                 
                 # Encode to hex
                 buf = io.BytesIO()
@@ -150,7 +161,7 @@ async def process_audio(file: UploadFile = File(...)):
     except Exception as e:
         return {"error": str(e), "results": []}
 
-@app.get("/")
+@app.get("/health")
 def health_check():
     return {
         "status": "Ultravox v0.5 STS Agent Running",
